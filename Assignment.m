@@ -82,3 +82,130 @@ fprintf('%8s| %9.2f %9.2f  [kJ/kg/K]\n','Total S',S1/kJ,S2/kJ);
 T2int = T2;
 
 %% Here starts your part (compressor,combustor,turbine and nozzle)...
+
+%% Compressor solution using interpolation
+cMethod = 'Interpolation Method';
+sPart = 'Compressor';
+P3 = P2 * P3overP2;
+S3 = S2;
+% We find the temperature for which the thermal part of entropy is s2thermal + Rg*log(P3/P2)
+% which was found using S_3 - S_2 = 0
+T3 = interp1(sair_a, TR, s2thermal + Rg*log(P3/P2));
+h3 = interp1(TR, hair_a, T3);
+v3 = 0;
+
+% Print to screen
+fprintf('\n%14s\n',cMethod);
+fprintf('Stage  ||%14s        [unit]\n      NR|%9i %9i\n',sPart,2,3);
+fprintf('-------------------------------------\n');
+fprintf('%8s| %9.2f %9.2f  [K]\n','Temp',T2, T3);
+fprintf('%8s| %9.2f %9.2f  [kPa]\n','Press',P2/kPa, P3/kPa);
+fprintf('%8s| %9.2f %9.2f  [m/s]\n','v',v2, v3);
+fprintf('---  H/S    -------------------------\n');
+fprintf('%8s| %9.2f %9.2f  [kJ/kg]\n','h',h2/kJ, h3/kJ);
+fprintf('%8s| %9.2f %9.2f  [kJ/kg/K]\n','Total S',S2/kJ, S3/kJ);
+
+%% Combustor solution using interpolation
+cMethod = 'Interpolation Method';
+sPart = 'Combustor';
+P4 = P3;
+
+%{
+Assumptions (terms neglected): \dot{Q_{cv}}, \dot{W_{cv}}, kinetic energy, potential energy
+
+Conservation of energy:
+\dot{m_air} h_3 + \dot{m_{fuel}} h_fuel = \dot{m_products} h_4      , where m_3 is the mass flow rate of air, m_{fuel} is the mass flow rate of fuel, m_4 is the mass flow rate of the products of combustion
+%}
+v4 = 0;
+mAir = mfurate * AF;
+mFuel = mfurate;
+mProducts = mAir + mFuel;
+hFuel = interp1(TR, Yfuel * hia', Tref);
+h4 = (mAir * h3 + mFuel * hFuel) / mProducts;
+% We use the data from the database for the fuel
+x = Sp(iSp(1)).Elcomp(3);
+y = Sp(iSp(1)).Elcomp(2);
+MFuel = Sp(iSp(1)).Mass;
+% We find the composition of the products of combustion using the method in Turns
+a = x + y / 4;
+AFStoic = (4.76 * a) * (MAir / MFuel);
+equivalenceRatio = AFStoic / AF;
+b = x;
+c = y / 2;
+d = (2 * (a / equivalenceRatio) - 2 * b - c) / 2;
+e = (a * 3.76) / equivalenceRatio;
+NTot = b + c + d + e;
+XCO2 = b / NTot;
+XH2O = c / NTot;
+XO2 = d / NTot;
+XN2 = e / NTot;
+XProducts = [0 XO2 XCO2 XH2O XN2];
+% We find the enthalpy of the products of combustion
+MProducts = XProducts * Mi';
+YProducts = XProducts .* Mi / MProducts;
+hProducts_a = YProducts * hia';
+% We use the enthalpy we found to find the temperature
+T4 = interp1(hProducts_a, TR, h4);
+
+sProducts_a = YProducts * sia';
+s4thermal = interp1(TR, sProducts_a, T4);
+RgProducts = Runiv / MProducts;
+S4 = s4thermal - RgProducts * log(P4/Pref);
+
+% Print to screen
+fprintf('\n%14s\n',cMethod);
+fprintf('Stage  ||%14s        [unit]\n      NR|%9i %9i\n',sPart,3,4);
+fprintf('-------------------------------------\n');
+fprintf('%8s| %9.2f %9.2f  [K]\n','Temp',T3, T4);
+fprintf('%8s| %9.2f %9.2f  [kPa]\n','Press',P3/kPa, P4/kPa);
+fprintf('%8s| %9.2f %9.2f  [m/s]\n','v',v3, v4);
+fprintf('---  H/S    -------------------------\n');
+fprintf('%8s| %9.2f %9.2f  [kJ/kg]\n','h',h3/kJ, h4/kJ);
+fprintf('%8s| %9.2f %9.2f  [kJ/kg/K]\n','Total S',S3/kJ, S4/kJ);
+
+%% Turbine solution using interpolation
+h5 = h4 + h2 - h3;
+v5 = 0;
+S5 = S4;
+T5 = interp1(hProducts_a, TR, h5);
+
+% For P5, we use S = s_thermal - R_g*ln(P/P_ref)
+s5thermal = interp1(TR, sProducts_a, T5);
+lnP5 = ((s5thermal - S5)/(RgProducts)) + log(Pref);
+P5 = exp(lnP5);
+
+% Print to screen
+cMethod = 'Interpolation Method';
+sPart = 'Turbine';
+fprintf('\n%14s\n',cMethod);
+fprintf('Stage  ||%14s        [unit]\n      NR|%9i %9i\n',sPart,4,5);
+fprintf('-------------------------------------\n');
+fprintf('%8s| %9.2f %9.2f  [K]\n','Temp',T4, T5);
+fprintf('%8s| %9.2f %9.2f  [kPa]\n','Press',P4/kPa, P5/kPa);
+fprintf('%8s| %9.2f %9.2f  [m/s]\n','v',v4, v5);
+fprintf('---  H/S    -------------------------\n');
+fprintf('%8s| %9.2f %9.2f  [kJ/kg]\n','h',h4/kJ, h5/kJ);
+fprintf('%8s| %9.2f %9.2f  [kJ/kg/K]\n','Total S',S4/kJ, S5/kJ);
+
+%% Nozzle solution using interpolation
+cMethod = 'Interpolation Method';
+sPart = 'Nozzle';
+P6 = Pamb;
+S6 = S5;
+% We use S = s_thermal - R_g*ln(P/P_ref), find s_thermal, and use it to find T6
+s6thermal = S6 + RgProducts * log(P6/Pref);
+T6 = interp1(sProducts_a, TR, s6thermal);
+h6 = interp1(TR, hProducts_a, T6);
+% Then, we use Turns' v6 = sqrt(2*(h5-h6))
+v6 = sqrt(2 * (h5 - h6));
+
+% Print to screen
+fprintf('\n%14s\n',cMethod);
+fprintf('Stage  ||%14s        [unit]\n      NR|%9i %9i\n',sPart,5,6);
+fprintf('-------------------------------------\n');
+fprintf('%8s| %9.2f %9.2f  [K]\n','Temp',T5, T6);
+fprintf('%8s| %9.2f %9.2f  [kPa]\n','Press',P5/kPa, P6/kPa);
+fprintf('%8s| %9.2f %9.2f  [m/s]\n','v',v5, v6);
+fprintf('---  H/S    -------------------------\n');
+fprintf('%8s| %9.2f %9.2f  [kJ/kg]\n','h',h5/kJ, h6/kJ);
+fprintf('%8s| %9.2f %9.2f  [kJ/kg/K]\n','Total S',S5/kJ, S6/kJ);
